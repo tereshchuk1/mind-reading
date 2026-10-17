@@ -32,6 +32,24 @@ produced by exactly the code path that writes the submission:
 Full ablations, per-subject numbers, and the train-only cross-validation
 (which also covers sub-05/06) are in [REPORT.md](REPORT.md).
 
+### v2 (branch `v2-experiments`, additive; v1 is tagged `v1-submitted`)
+
+v2 adds two ensemble members (member0's features + AST, + V-JEPA 2) and a
+**CCA spatial denoiser**: canonical correlation analysis between the ensemble's
+out-of-fold TRF predictions and the training EEG; predictions and recordings are
+projected onto the first 2 canonical components and back-projected to the 17
+channels before scoring. Everything is fit on training recordings only.
+
+| | dev top-1 | dev top-5 | train-CV top-1 | train-CV top-5 |
+|---|---|---|---|---|
+| v1 (`configs/final.json`) | 15.9% | 34.6% | 5.7% | 18.9% |
+| **v2 (`configs/v2.json`)** | **16.2%** | **41.2%** | **6.4%** | **19.9%** |
+
+Every experiment (v1 reference rows included) is logged in
+[results/experiments.csv](results/experiments.csv); the v2 section of
+[REPORT.md](REPORT.md) discusses them, including the negative results (banded
+ridge, whitening CCA/CorrCA, new encoders as single members).
+
 ## Reproduce
 
 Requirements: Python 3.11, CPU is enough (feature extraction ~4 h on 12 cores,
@@ -61,6 +79,32 @@ python -m mindreading.analysis
 Step 3 alone reproduces the submission from the stored weights in `weights/`
 (it still needs the cached features of the test videos from step 1).
 
+### v2
+
+v2 features are extracted on a GPU in a separate environment (modelling stays
+in the CPU environment above):
+
+```bash
+conda create -n mindreading-gpu python=3.11 -y
+conda activate mindreading-gpu
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+pip install transformers opencv-python imageio-ffmpeg scikit-learn joblib scipy
+cd src
+python -m mindreading.features vjepa2 ast hubert clap whisper_layers alexnet_layers --device cuda
+```
+
+Then, in the `mindreading` environment (v1 outputs are never overwritten):
+
+```bash
+cd src
+python -m mindreading.pipeline all --config ../configs/v2.json --out-weights weights/v2 --out-submission submission/v2
+python -m mindreading.ctrsa            # CT-RSA analysis -> figures/ctrsa_*.png, figures/ctrsa.json
+```
+
+The training step computes 10-fold out-of-fold predictions of every member to
+fit the CCA denoiser (cached in `scratch/`). The experiment scripts behind
+`results/experiments.csv` are in `experiments/` (run with `PYTHONPATH=src`).
+
 ## Repository layout
 
 | Path | Content |
@@ -71,9 +115,15 @@ Step 3 alone reproduces the submission from the stored weights in `weights/`
 | `src/mindreading/evaluate.py` | dev-test and train-CV evaluation of ensemble members |
 | `src/mindreading/pipeline.py` | final training / inference / submission writer |
 | `src/mindreading/analysis.py` | TRF kernels, time-window analysis, failure cases, noise ceiling |
-| `configs/final.json` | the submitted configuration |
-| `weights/` | trained model weights (feature transforms + TRF weights, joblib) |
-| `submission/` | `sub-05_ranked_candidate_list.npy`, `sub-06_ranked_candidate_list.npy`, dev scores |
+| `src/mindreading/banded.py` | v2: banded ridge (per-feature-set penalty search) |
+| `src/mindreading/cca.py` | v2: CCA / CorrCA spatial filters and denoisers |
+| `src/mindreading/ctrsa.py` | v2: cross-temporal RSA by channel group |
+| `configs/final.json` | the submitted v1 configuration |
+| `configs/v2.json` | v2 configuration |
+| `weights/`, `weights/v2/` | trained model weights (feature transforms + TRF weights, joblib); v2 adds `denoise.joblib` |
+| `submission/`, `submission/v2/` | `sub-05_ranked_candidate_list.npy`, `sub-06_ranked_candidate_list.npy`, dev scores |
+| `results/experiments.csv` | one row per experiment: dev and train-CV top-1/top-5, mean and per subject |
+| `experiments/` | v2 experiment scripts |
 | `figures/` | figures used in the report |
 | `01_preprocess_and_train_model.ipynb`, `02_predict_movies.ipynb` | organisers' baseline notebooks (reference) |
 | `03_compare_approaches.ipynb` | earlier exploration harness |
@@ -86,6 +136,15 @@ Step 3 alone reproduces the submission from the stored weights in `weights/`
 | Whisper small (encoder, layers 4, 8, 12) | `openai/whisper-small` | `973afd24965f72e36ca33b3055d56a652f456b4d` |
 | CLIP ViT-B/16 (vision tower, layers 6 and 12, CLS) | `openai/clip-vit-base-patch16` | `57c216476eefef5ab752ec549e440a49ae4ae5f3` |
 | AlexNet (`features.3`, `features.10`) | `torchvision.models.alexnet`, `AlexNet_Weights.IMAGENET1K_V1` | torchvision 0.29.1 |
+| v2: V-JEPA 2 ViT-L (64 frames, fp16; layers 12 and 24, spatial mean per temporal token) | `facebook/vjepa2-vitl-fpc64-256` | `b3c1679b7c34d3255ef3547f27c7b226aefab26f` |
+| v2: AST (AudioSet; layers 6 and 12, frequency mean per time patch) | `MIT/ast-finetuned-audioset-10-10-0.4593` | `f826b80d28226b62986cc218e5cec390b1096902` |
+| v2: HuBERT base (layers 6 and 12, 50 Hz) | `facebook/hubert-base-ls960` | `dba3bb02fda4248b6e082697eee756de8fe8aa8a` |
+| v2: CLAP HTSAT (audio embedding of 0.5 s windows) | `laion/clap-htsat-unfused` | `8fa0f1c6d0433df6e97c127f64b2a1d6c0dcda8a` |
+| v2: Whisper base, all encoder hidden states 0-6 (CT-RSA) | `openai/whisper-base` | as above |
+| v2: AlexNet, all 5 conv layers (CT-RSA) | torchvision, `IMAGENET1K_V1` | torchvision 0.26.0 (GPU env) |
+
+v2 features were extracted with torch 2.11.0+cu128 and transformers 5.20.1
+(`results/hf_revisions.json`).
 
 No pre-trained model is fine-tuned; only the linear TRF is trained.
 
@@ -101,3 +160,5 @@ No pre-trained model is fine-tuned; only the linear TRF is trained.
 * No assignment / matching constraint across test recordings (Hungarian,
   Sinkhorn) is used; we tested it and it did not help (see report).
 * Rows of the submission follow the original order of `tst/sub-XX_tst.npy`.
+* v2's CCA denoiser is fit on out-of-fold predictions and EEG of **training**
+  videos only; on test data it is a fixed linear map applied to each recording.

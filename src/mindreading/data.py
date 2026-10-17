@@ -2,7 +2,9 @@
 
 Key empirical facts that drive the design (see REPORT.md):
 * The stimulus-locked signal shared across subjects is dominated by slow
-  (< 1 Hz) components, so we do NOT high-pass filter.
+  (< 1 Hz) components, so we do NOT high-pass filter (the data are already
+  band-passed 0.1-40 Hz by the organisers; an extra 0.5 Hz high-pass removed
+  stimulus information).
 * Test recordings have ~0.65x the amplitude of single training trials and
   ~2x higher inter-subject similarity, i.e. they look averaged over repeats.
 """
@@ -20,6 +22,17 @@ DEV_SUBJECTS = (1, 2, 3, 4)
 HELDOUT_SUBJECTS = (5, 6)
 ALL_SUBJECTS = DEV_SUBJECTS + HELDOUT_SUBJECTS
 TEST_IDS = np.arange(1001, 1103)
+# Electrode order of all subjects (organisers). Posterior montage only: parietal,
+# parieto-occipital and occipital sites, no frontal/central electrodes. The data
+# arrive band-passed 0.1-40 Hz, with blink ICA components removed, at 500 Hz.
+CHANNELS = ("Pz", "P3", "P7", "O1", "Oz", "O2", "P4", "P8", "P1", "P5",
+            "PO7", "PO3", "POz", "PO4", "PO8", "P6", "P2")
+OCCIPITAL = ("O1", "Oz", "O2", "PO3", "POz", "PO4")
+LATERAL_PARIETAL = ("P7", "P8", "PO7", "PO8", "P5", "P6")
+
+
+def chan_idx(names) -> np.ndarray:
+    return np.array([CHANNELS.index(c) for c in names])
 
 
 def path(*p):

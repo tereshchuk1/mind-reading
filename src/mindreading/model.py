@@ -84,10 +84,13 @@ class FeatureSpace:
     """Per feature set: z-score + PCA over all frames of the TRAIN videos, then
     sample-and-hold up-sampling to the EEG rate. Each set gets unit total
     variance so no set dominates the shared ridge penalty. n_pca: int or
-    {feature_set: n_components} (default 30)."""
+    {feature_set: n_components} (default 30). scales: optional {feature_set:
+    factor}; multiplying a block by s is equivalent to dividing its ridge
+    penalty by s^2 (banded ridge)."""
 
-    def __init__(self, names, n_pca=30, n_out=150):
+    def __init__(self, names, n_pca=30, n_out=150, scales=None):
         self.names, self.n_pca, self.n_out = list(names), n_pca, n_out
+        self.scales = dict(scales or {})
 
     def fit(self, train: dict):
         self.tf = {}
@@ -108,7 +111,7 @@ class FeatureSpace:
             nb, d = a.shape[1:]
             z = p.transform(sc.transform(a.reshape(-1, d))).reshape(len(a), nb, -1)
             hold = np.arange(self.n_out) * nb // self.n_out    # sample-and-hold index
-            out.append(z[:, hold] / np.sqrt(p.n_components_))
+            out.append(z[:, hold] * (getattr(self, "scales", {}).get(n, 1.0) / np.sqrt(p.n_components_)))
         return np.concatenate(out, -1).astype(np.float32)
 
 

@@ -14,6 +14,21 @@ Extractors:
   whisper   - openai/whisper-base encoder layers 3 and 6, 50 Hz (150 frames).
   whisper_small - openai/whisper-small encoder layers 4, 8 and 12, 50 Hz.
   lowlevel25 / audio50 - the same at 25 Hz / 50 Hz (used by the TRF model).
+
+v2 extractors (GPU env `mindreading-gpu`, see README):
+  vjepa2    - facebook/vjepa2-vitl-fpc64-256, 64 frames over 0-3 s, fp16; tokens
+              mean-pooled over space per temporal position (tubelet 2 -> 32
+              positions, ~94 ms each); a middle and the last layer.
+  ast       - MIT/ast-finetuned-audioset-10-10-0.4593, patch tokens averaged over
+              frequency per time patch (100 ms stride), first 30 positions
+              (= 3 s); layers 6 and 12.
+  hubert    - facebook/hubert-base-ls960, 50 Hz frames (150), layers 6 and 12.
+  clap      - laion/clap-htsat-unfused audio embedding (512) of six
+              non-overlapping 0.5 s windows (48 kHz).
+  whisper_L{0..6}  - every hidden state of the whisper-base encoder, pooled to
+              25 Hz (75 bins), float16; used for CT-RSA.
+  alexnet_c{1..5}  - every AlexNet conv layer (features.0/3/6/8/10), 4x4 pooled,
+              12 frames (4 Hz), float16; used for CT-RSA.
 """
 from __future__ import annotations
 
@@ -232,10 +247,178 @@ def extract_vit(name: str, model_id: str, layers: tuple[int, ...], n_frames: int
         np.save(out, np.stack(res).astype(np.float32))
 
 
+# ----------------------------------------------------------------------------- v2 (GPU)
+def _splits(names):
+    """Yield (split, ids) whose cache files for all `names` do not exist yet."""
+    os.makedirs(CACHE, exist_ok=True)
+    for split, ids in [("train", range(1, 1001)), ("test", range(1001, 1103))]:
+        if not all(os.path.exists(os.path.join(CACHE, f"{n}_{split}.npy")) for n in names):
+            yield split, ids
+
+
+def _save(name, split, arr, dtype=np.float32):
+    arr = np.stack(arr).astype(dtype)
+    np.save(os.path.join(CACHE, f"{name}_{split}.npy"), arr)
+    print(name, split, arr.shape, flush=True)
+
+
+def extract_vjepa2(model_id="facebook/vjepa2-vitl-fpc64-256", n_frames=64, layers=None, device="cuda", limit=None):
+    import torch
+    from transformers import AutoModel, AutoVideoProcessor
+
+    proc = AutoVideoProcessor.from_pretrained(model_id)
+    model = AutoModel.from_pretrained(model_id, dtype=torch.float16).eval().to(device)
+    tub = model.config.tubelet_size
+    n_layers = model.config.num_hidden_layers
+    layers = layers or (n_layers // 2, n_layers)
+    times = (np.arange(n_frames) + 0.5) * DUR / n_frames
+    for split, ids in ([("smoke", range(1, 1 + limit))] if limit else _splits(["vjepa2"])):
+        res = []
+        for vid in ids:
+            fr, t = read_frames(vid)
+            idx = [int(np.argmin(np.abs(t - x))) for x in times]
+            inp = proc(list(fr[idx]), return_tensors="pt")["pixel_values_videos"].to(device, torch.float16)
+            with torch.inference_mode():
+                hs = model(pixel_values_videos=inp, skip_predictor=True, output_hidden_states=True).hidden_states
+            nt = n_frames // tub
+            # token order is (time, height, width): mean over space per temporal position
+            res.append(np.concatenate([hs[l][0].float().reshape(nt, -1, hs[l].shape[-1]).mean(1).cpu().numpy()
+                                       for l in layers], -1))
+            if limit:
+                print("vjepa2 smoke", vid, "input", tuple(inp.shape), "n_hidden", len(hs), "tokens", tuple(hs[-1].shape),
+                      "->", res[-1].shape, "layers", layers,
+                      "max VRAM GB", round(torch.cuda.max_memory_allocated() / 1e9, 2), flush=True)
+            elif vid % 100 == 0:
+                print("vjepa2", vid, flush=True)
+        if not limit:
+            _save("vjepa2", split, res)
+
+
+def extract_ast(model_id="MIT/ast-finetuned-audioset-10-10-0.4593", layers=(6, 12), n_pos=30, device="cuda"):
+    import torch
+    from transformers import ASTFeatureExtractor, ASTModel
+
+    fe = ASTFeatureExtractor.from_pretrained(model_id)
+    model = ASTModel.from_pretrained(model_id).eval().to(device)
+    f_dim, t_dim = model.embeddings.get_shape(model.config)       # patch grid (frequency x time)
+    for split, ids in _splits(["ast"]):
+        res = []
+        for vid in ids:
+            inp = fe(load_audio(vid), sampling_rate=16000, return_tensors="pt")["input_values"].to(device)
+            with torch.inference_mode():
+                hs = model(inp, output_hidden_states=True).hidden_states
+            # tokens after the 2 CLS/distillation tokens are frequency-major (f, t)
+            res.append(np.concatenate([hs[l][0, 2:].float().reshape(f_dim, t_dim, -1).mean(0)[:n_pos].cpu().numpy()
+                                       for l in layers], -1))
+            if vid % 100 == 0:
+                print("ast", vid, flush=True)
+        _save("ast", split, res)
+
+
+def extract_hubert(model_id="facebook/hubert-base-ls960", layers=(6, 12), device="cuda"):
+    import torch
+    from transformers import AutoFeatureExtractor, HubertModel
+
+    fe = AutoFeatureExtractor.from_pretrained(model_id)
+    model = HubertModel.from_pretrained(model_id).eval().to(device)
+    for split, ids in _splits(["hubert"]):
+        res = []
+        for vid in ids:
+            inp = fe(load_audio(vid), sampling_rate=16000, return_tensors="pt")["input_values"].to(device)
+            with torch.inference_mode():
+                hs = model(inp, output_hidden_states=True).hidden_states
+            f = np.concatenate([hs[l][0].float().cpu().numpy() for l in layers], -1)[:150]
+            res.append(np.pad(f, ((0, 150 - len(f)), (0, 0)), mode="edge"))
+            if vid % 100 == 0:
+                print("hubert", vid, flush=True)
+        _save("hubert", split, res)
+
+
+def extract_clap(model_id="laion/clap-htsat-unfused", win=0.5, device="cuda"):
+    """CLAP gives one embedding per input, so the clip is cut into 0.5 s windows."""
+    import torch
+    from transformers import ClapModel, ClapProcessor
+
+    proc = ClapProcessor.from_pretrained(model_id)
+    model = ClapModel.from_pretrained(model_id).eval().to(device)
+    sr = 48000
+    n = int(win * sr)
+    for split, ids in _splits(["clap"]):
+        res = []
+        for vid in ids:
+            y = load_audio(vid, sr)
+            chunks = [y[i * n:(i + 1) * n] for i in range(int(DUR / win))]
+            inp = proc(audio=chunks, sampling_rate=sr, return_tensors="pt").to(device)
+            with torch.inference_mode():
+                e = model.get_audio_features(**inp)
+            e = e if torch.is_tensor(e) else e.pooler_output
+            res.append(e.float().cpu().numpy())
+            if vid % 100 == 0:
+                print("clap", vid, flush=True)
+        _save("clap", split, res)
+
+
+def extract_whisper_layers(model_id="openai/whisper-base", pool=2, device="cuda"):
+    import torch
+    from transformers import WhisperFeatureExtractor, WhisperModel
+
+    fe = WhisperFeatureExtractor.from_pretrained(model_id)
+    enc = WhisperModel.from_pretrained(model_id).encoder.eval().to(device)
+    names = [f"whisper_L{l}" for l in range(enc.config.encoder_layers + 1)]
+    for split, ids in _splits(names):
+        res = {n: [] for n in names}
+        for vid in ids:
+            inp = fe(load_audio(vid), sampling_rate=16000, return_tensors="pt").input_features.to(device)
+            with torch.inference_mode():
+                hs = enc(inp, output_hidden_states=True).hidden_states
+            for l, n in enumerate(names):
+                res[n].append(hs[l][0, :150].float().cpu().numpy().reshape(150 // pool, pool, -1).mean(1))
+        for n in names:
+            _save(n, split, res[n], np.float16)
+
+
+def extract_alexnet_layers(n_frames=12, device="cuda"):
+    import torch
+    import torch.nn.functional as F
+    from torchvision import models
+
+    net = models.alexnet(weights=models.AlexNet_Weights.IMAGENET1K_V1).features.eval().to(device)
+    mean = torch.tensor([0.485, 0.456, 0.406], device=device).view(1, 3, 1, 1)
+    std = torch.tensor([0.229, 0.224, 0.225], device=device).view(1, 3, 1, 1)
+    convs = {0: 1, 3: 2, 6: 3, 8: 4, 10: 5}                       # features.i -> conv number
+    names = [f"alexnet_c{c}" for c in convs.values()]
+    times = (np.arange(n_frames) + 0.5) * DUR / n_frames
+    for split, ids in _splits(names):
+        res = {n: [] for n in names}
+        for vid in ids:
+            fr, t = read_frames(vid, size=224)
+            idx = [int(np.argmin(np.abs(t - x))) for x in times]
+            h = (torch.from_numpy(fr[idx]).to(device).permute(0, 3, 1, 2).float() / 255 - mean) / std
+            with torch.inference_mode():
+                for i, layer in enumerate(net):
+                    h = layer(h)
+                    if i in convs:
+                        res[f"alexnet_c{convs[i]}"].append(F.adaptive_avg_pool2d(h, 4).flatten(1).cpu().numpy())
+        for n in names:
+            _save(n, split, res[n], np.float16)
+
+
+def hf_revisions(model_ids):
+    """Commit hashes of locally cached Hugging Face models (refs/main)."""
+    hub = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
+    out = {}
+    for m in model_ids:
+        f = os.path.join(hub, "models--" + m.replace("/", "--"), "refs", "main")
+        out[m] = open(f).read().strip() if os.path.exists(f) else None
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("which", nargs="+", choices=["lowlevel", "lowlevel25", "audio", "audio50", "alexnet", "whisper", "whisper_small", "clip", "dinov2"])
+    ap.add_argument("which", nargs="+", choices=["lowlevel", "lowlevel25", "audio", "audio50", "alexnet", "whisper", "whisper_small", "clip", "dinov2",
+                                           "vjepa2_smoke", "vjepa2", "ast", "hubert", "clap", "whisper_layers", "alexnet_layers"])
     ap.add_argument("--device", default="cpu")
+    ap.add_argument("--frames", type=int, default=64, help="V-JEPA 2 input frames (64; 32/16 if out of memory)")
     a = ap.parse_args()
     for w in a.which:
         if w == "lowlevel":
@@ -256,6 +439,20 @@ def main():
             extract_vit("clip", "openai/clip-vit-base-patch16", (6, 12), device=a.device)
         elif w == "dinov2":
             extract_vit("dinov2", "facebook/dinov2-base", (6, 12), device=a.device)
+        elif w == "vjepa2_smoke":
+            extract_vjepa2(n_frames=a.frames, device=a.device, limit=3)
+        elif w == "vjepa2":
+            extract_vjepa2(n_frames=a.frames, device=a.device)
+        elif w == "ast":
+            extract_ast(device=a.device)
+        elif w == "hubert":
+            extract_hubert(device=a.device)
+        elif w == "clap":
+            extract_clap(device=a.device)
+        elif w == "whisper_layers":
+            extract_whisper_layers(device=a.device)
+        elif w == "alexnet_layers":
+            extract_alexnet_layers(device=a.device)
 
 
 if __name__ == "__main__":

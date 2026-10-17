@@ -23,15 +23,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .data import DEV_SUBJECTS, load_subject, load_test_labels, path
+from .data import CHANNELS, DEV_SUBJECTS, load_subject, load_test_labels, path
 from .model import col_zscore, load_feature, rank_scores, similarity
 from .pipeline import predict_candidates
 
 FIG = path("figures")
 
 
-def kernels(cfg):
-    b = joblib.load(path("weights", "member0.joblib"))
+def kernels(cfg, weights_dir="weights", fig_name="trf_kernels.png"):
+    b = joblib.load(path(weights_dir, "member0.joblib"))
     W, lags, fs = b["W"], b["lags"], b["space"]
     D = sum(p.n_components_ for _, p in fs.tf.values())
     Wl = W[: D * len(lags)].reshape(len(lags), D, -1)           # (lag, feature, channel)
@@ -43,13 +43,14 @@ def kernels(cfg):
         e = (Wl[:, start:start + k] ** 2).sum((1, 2))
         ax[0].plot(np.array(lags) * dt, e / e.max(), label=n, marker="o", ms=3)
         topo = (Wl[:, start:start + k] ** 2).sum((0, 1))
-        ax[1].plot(np.arange(1, 18), topo / topo.max(), label=n, marker="o", ms=3)
+        ax[1].plot(np.arange(len(CHANNELS)), topo / topo.max(), label=n, marker="o", ms=3)
         start += k
     ax[0].set(xlabel="lag (ms)", ylabel="normalised kernel energy", title="When each stimulus property drives EEG")
-    ax[1].set(xlabel="EEG channel index", ylabel="normalised kernel energy", title="Where (channel profile)")
+    ax[1].set(xlabel="EEG channel", ylabel="normalised kernel energy", title="Where (channel profile)")
+    ax[1].set_xticks(np.arange(len(CHANNELS)), CHANNELS, rotation=60, fontsize=8)
     ax[0].legend(fontsize=8)
     fig.tight_layout()
-    fig.savefig(os.path.join(FIG, "trf_kernels.png"), dpi=130)
+    fig.savefig(os.path.join(FIG, fig_name), dpi=130)
 
 
 def time_windows(cfg, preds):

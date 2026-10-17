@@ -1,0 +1,14 @@
+{
+  "description": "v2: v1's 5 TRF members + member0 features with AST, + member0 features with V-JEPA 2; every member's prediction and the recording are denoised by a CCA spatial filter (first 2 canonical components of out-of-fold TRF predictions vs training EEG, back-projected to channels). Score = mean of column-z-scored Pearson similarities.",
+  "prep": {"lowpass": 20.0, "dec": 10},
+  "members": [
+    {"features": ["lowlevel25", "audio50", "whisper", "alexnet_l10"], "n_pca": 30, "lags": [0, 30, 2]},
+    {"features": ["lowlevel25", "audio50", "whisper", "alexnet_l10"], "n_pca": {"whisper": 15}, "lags": [0, 30, 2]},
+    {"features": ["lowlevel25", "audio50", "whisper", "alexnet_l10", "clip"], "n_pca": 30, "lags": [0, 30, 2]},
+    {"features": ["lowlevel25", "audio50", "whisper_small", "alexnet_l10"], "n_pca": 30, "lags": [0, 30, 2]},
+    {"features": ["lowlevel25", "audio50", "whisper", "whisper_small", "alexnet_l10"], "n_pca": 30, "lags": [0, 30, 2]},
+    {"features": ["lowlevel25", "audio50", "whisper", "alexnet_l10", "ast"], "n_pca": 30, "lags": [0, 30, 2]},
+    {"features": ["lowlevel25", "audio50", "whisper", "alexnet_l10", "vjepa2"], "n_pca": 30, "lags": [0, 30, 2]}
+  ],
+  "denoise": {"method": "cca", "k": 2, "reg": 0.1}
+}

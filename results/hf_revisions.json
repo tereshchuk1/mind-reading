@@ -1,0 +1,9 @@
+{
+ "facebook/vjepa2-vitl-fpc64-256": "b3c1679b7c34d3255ef3547f27c7b226aefab26f",
+ "MIT/ast-finetuned-audioset-10-10-0.4593": "f826b80d28226b62986cc218e5cec390b1096902",
+ "facebook/hubert-base-ls960": "dba3bb02fda4248b6e082697eee756de8fe8aa8a",
+ "laion/clap-htsat-unfused": "8fa0f1c6d0433df6e97c127f64b2a1d6c0dcda8a",
+ "openai/whisper-base": "e37978b90ca9030d5170a5c07aadb050351a65bb",
+ "openai/whisper-small": "973afd24965f72e36ca33b3055d56a652f456b4d",
+ "openai/clip-vit-base-patch16": "57c216476eefef5ab752ec549e440a49ae4ae5f3"
+}
