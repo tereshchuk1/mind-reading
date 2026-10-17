@@ -1,0 +1,18 @@
+# challenge data (download from the organisers, not redistributed)
+stimuli_train/
+stimuli_test/
+frames*/
+features*/
+trn/
+tst/
+tst_stim/
+EMD/
+
+# caches and scratch
+cache/
+scratch/
+bin/
+.ipynb_checkpoints/
+__pycache__/
+*.pyc
+encoder_sub-*.joblib
