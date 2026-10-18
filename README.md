@@ -146,17 +146,6 @@ v2 features were extracted with torch 2.11.0+cu128 and transformers 5.20.1
 (`results/hf_revisions.json`).
 
 No pre-trained model is fine-tuned; only the linear TRF is trained.
-
-## Compliance with the rules
-
-* Only **training** recordings (all six subjects) are used to fit anything:
-  feature PCA, TRF weights and the ridge penalty (chosen by 5-fold CV over
-  training videos with the task metric).
-* Test recordings are used only through unsupervised per-subject normalisation
-  (mean removal / unit variance) and the column z-score of the similarity
-  matrix. No test recording is ever used as a template.
-* Dev test labels (sub-01..04) are used only to score and select models.
-* No assignment / matching constraint across test recordings (Hungarian,
   Sinkhorn) is used; we tested it and it did not help (see report).
 * Rows of the submission follow the original order of `tst/sub-XX_tst.npy`.
 * The CorrCA denoiser (final) is fit on the **training** recordings of the six
