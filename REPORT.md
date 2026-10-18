@@ -100,13 +100,11 @@ features).
 
 **Training (fine-tuning):** the pre-trained networks (Whisper, AST, AlexNet,
 CLIP, V-JEPA 2) are **not fine-tuned**; they are frozen feature extractors.
-With 1000 videos, fine-tuning a network on EEG overfits (in the previous
-iteration a contrastive model reached 2.2%/9.1%). Only the TRF ridge regression
+With 1000 videos, fine-tuning a network on EEG overfits. Only the TRF ridge regression
 is trained, in closed form. α is chosen by 5-fold CV **over training videos**
 (not over samples: neighbouring samples within a clip are correlated, and
 leave-one-out under-regularises), and the selection criterion is **the task
-metric itself** (top-1 + top-5 when identifying held-out videos), not MSE: the
-MSE criterion chose far too strong regularisation (dev 8.1% instead of 12.7%).
+metric** (top-1 + top-5 when identifying held-out videos).
 
 **Ranking:** Pearson correlation between the recorded response and the
 predicted response of every candidate over all 17 channels × 150 samples; then
@@ -115,15 +113,6 @@ every column (candidate) is z-scored over the 102 recordings, which removes
 this normalisation). Ensemble: mean of the z-scored similarity matrices of the
 7 models. In the final model recordings and predictions are first passed
 through the CorrCA denoiser (section 10).
-
-**Model selection.** Two validation schemes, neither of which touches the
-test data of sub-05/06: (a) the dev test of sub-01..04 (408 averaged
-recordings, standard error ≈1.7 pp for top-1), (b) 10-fold CV over training
-videos on single trials of all 6 subjects (~5600 rankings, including
-sub-05/06). During development a change was accepted only if it improved both.
-For the final submission, where only one variant can be submitted and the goal
-is the highest metric, the variant with the best dev-test score was chosen
-(section 10.0); on train-CV it is tied with the runner-up.
 
 ## 6. Why these models: biological rationale
 
