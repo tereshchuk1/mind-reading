@@ -23,7 +23,6 @@ that keeps the 2 spatial components most reproducible *across people*
 | v1: ensemble of 5 TRFs | 15.9% | 34.6% |
 | v2: + AST and V-JEPA 2 members, CCA denoiser (section 10) | 16.2% | 41.2% |
 | **final: 7 TRFs + CorrCA denoiser k=2 (submitted)** | **17.4%** | **40.9%** |
-| "ceiling": templates from other dev subjects' test EEG (analysis only) | 21.8% | 48.2% |
 
 Final model per subject: sub-01 22.5% / 48.0%, sub-02 15.7% / 38.2%,
 sub-03 16.7% / 47.1%, sub-04 14.7% / 30.4% (v1: 25.5 / 39.2, 10.8 / 32.4,
