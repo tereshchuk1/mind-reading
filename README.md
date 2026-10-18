@@ -8,52 +8,46 @@ predicts the EEG response each candidate would evoke and ranks the candidates
 by how well the predicted response correlates with the measured one.
 
 **Core idea.** A forward *temporal response function* (TRF) maps time-resolved
-stimulus features (sound, low-level vision, Whisper base/small and
-AlexNet/CLIP embeddings) to the EEG time course with lags of 0-560 ms. One TRF is shared by
+stimulus features (sound, low-level vision, Whisper, AST, AlexNet, CLIP, V-JEPA 2
+embeddings) to the EEG time course with lags of 0-560 ms. One TRF is shared by
 all six subjects and trained on the per-video **group-average** response, which
-averages out subject-specific noise. An ensemble of five TRFs over different
-feature sets is fused after an unsupervised column z-score of the similarity
-matrices.
+averages out subject-specific noise. The submitted model is an ensemble of seven
+TRFs over different feature sets. Before scoring, recordings and predictions are
+passed through a **CorrCA spatial denoiser**: the two components of the 17
+channels that are most reproducible *across subjects* watching the same training
+video, back-projected to the channels. Similarities are fused after an
+unsupervised column z-score.
 
 The detailed report (in Russian) is in [REPORT.md](REPORT.md).
 
 ## Results
 
-Dev subjects (test recordings of sub-01..04, labels used only for scoring),
-produced by exactly the code path that writes the submission:
+Dev subjects (test recordings of sub-01..04, labels used only for scoring and
+model selection), produced by exactly the code path that writes the submission.
+train-CV = 10-fold CV over training videos, single trials of all six subjects
+(includes sub-05/06, no test data).
 
-| Model | top-1 | top-5 |
-|---|---|---|
-| chance | 1.0% | 4.9% |
-| organisers' baseline (AlexNet `features.3`, ridge, sub-01) | 3.9% | 11.8% |
-| **this pipeline, mean of sub-01..04** | **15.9%** | **34.6%** |
-| per subject: sub-01 / 02 / 03 / 04 | 25.5 / 10.8 / 17.6 / 9.8% | 39.2 / 32.4 / 44.1 / 22.5% |
-
-Full ablations, per-subject numbers, and the train-only cross-validation
-(which also covers sub-05/06) are in [REPORT.md](REPORT.md).
-
-### v2 (branch `v2-experiments`, additive; v1 is tagged `v1-submitted`)
-
-v2 adds two ensemble members (member0's features + AST, + V-JEPA 2) and a
-**CCA spatial denoiser**: canonical correlation analysis between the ensemble's
-out-of-fold TRF predictions and the training EEG; predictions and recordings are
-projected onto the first 2 canonical components and back-projected to the 17
-channels before scoring. Everything is fit on training recordings only.
-
-| | dev top-1 | dev top-5 | train-CV top-1 | train-CV top-5 |
+| Model | dev top-1 | dev top-5 | train-CV top-1 | train-CV top-5 |
 |---|---|---|---|---|
-| v1 (`configs/final.json`) | 15.9% | 34.6% | 5.7% | 18.9% |
-| **v2 (`configs/v2.json`)** | **16.2%** | **41.2%** | **6.4%** | **19.9%** |
+| chance | 1.0% | 4.9% | ~1% | ~5% |
+| organisers' baseline (AlexNet `features.3`, ridge, sub-01) | 3.9% | 11.8% | | |
+| v1: 5 TRFs (`configs/v1.json`, tag `v1-submitted`) | 15.9% | 34.6% | 5.7% | 18.9% |
+| v2: 7 TRFs + CCA denoiser (`configs/v2.json`) | 16.2% | 41.2% | 6.4% | 19.9% |
+| **final: 7 TRFs + CorrCA denoiser (`configs/final.json`)** | **17.4%** | **40.9%** | 5.9% | 20.3% |
 
-Every experiment (v1 reference rows included) is logged in
-[results/experiments.csv](results/experiments.csv); the v2 section of
-[REPORT.md](REPORT.md) discusses them, including the negative results (banded
-ridge, whitening CCA/CorrCA, new encoders as single members).
+Final model per dev subject (top-1 / top-5): sub-01 22.5 / 48.0, sub-02
+15.7 / 38.2, sub-03 16.7 / 47.1, sub-04 14.7 / 30.4. The final variant was
+chosen as the best dev-test score among all logged variants (it is the highest
+top-1, and 0.3 pp below the best top-5); on train-CV v2 and final are tied.
+
+Every experiment is logged in [results/experiments.csv](results/experiments.csv);
+REPORT.md discusses them, including the negative results.
 
 ## Reproduce
 
-Requirements: Python 3.11, CPU is enough (feature extraction ~4 h on 12 cores,
-mostly Whisper; training + prediction ~15 min).
+Requirements: Python 3.11. v1 features run on CPU (~4 h on 12 cores, mostly
+Whisper); AST and V-JEPA 2 features are extracted on a GPU (see below).
+Training + prediction ~30 min on CPU.
 
 ```bash
 conda create -n mindreading python=3.11 -y
@@ -68,7 +62,8 @@ Put the challenge data in the repository root (not redistributed here):
 cd src
 # 1. stimulus features -> cache/ (videos are read directly, no frames stored)
 python -m mindreading.features lowlevel25 audio50 alexnet whisper whisper_small clip
-# 2. train the ensemble on the training recordings of all 6 subjects -> weights/
+#    + AST and V-JEPA 2 in the GPU environment, see "GPU features" below
+# 2. train the 7 TRFs and the CorrCA denoiser on the training recordings of all 6 subjects -> weights/
 python -m mindreading.pipeline train --config ../configs/final.json
 # 3. rank candidates, write submission/, score the same code on sub-01..04
 python -m mindreading.pipeline predict --config ../configs/final.json
@@ -79,9 +74,9 @@ python -m mindreading.analysis
 Step 3 alone reproduces the submission from the stored weights in `weights/`
 (it still needs the cached features of the test videos from step 1).
 
-### v2
+### GPU features (AST, V-JEPA 2, and the v2 analyses)
 
-v2 features are extracted on a GPU in a separate environment (modelling stays
+These features are extracted on a GPU in a separate environment (modelling stays
 in the CPU environment above):
 
 ```bash
@@ -93,16 +88,18 @@ cd src
 python -m mindreading.features vjepa2 ast hubert clap whisper_layers alexnet_layers --device cuda
 ```
 
-Then, in the `mindreading` environment (v1 outputs are never overwritten):
+Earlier versions are reproducible side by side (outputs never overwrite the final ones):
 
 ```bash
 cd src
+python -m mindreading.pipeline all --config ../configs/v1.json --out-weights weights/v1 --out-submission submission/v1
 python -m mindreading.pipeline all --config ../configs/v2.json --out-weights weights/v2 --out-submission submission/v2
 python -m mindreading.ctrsa            # CT-RSA analysis -> figures/ctrsa_*.png, figures/ctrsa.json
 ```
 
-The training step computes 10-fold out-of-fold predictions of every member to
-fit the CCA denoiser (cached in `scratch/`). The experiment scripts behind
+v2's CCA denoiser needs 10-fold out-of-fold predictions of every member
+(computed during training, cached in `scratch/`); the final CorrCA denoiser
+needs only the training EEG. The experiment scripts behind
 `results/experiments.csv` are in `experiments/` (run with `PYTHONPATH=src`).
 
 ## Repository layout
@@ -118,10 +115,12 @@ fit the CCA denoiser (cached in `scratch/`). The experiment scripts behind
 | `src/mindreading/banded.py` | v2: banded ridge (per-feature-set penalty search) |
 | `src/mindreading/cca.py` | v2: CCA / CorrCA spatial filters and denoisers |
 | `src/mindreading/ctrsa.py` | v2: cross-temporal RSA by channel group |
-| `configs/final.json` | the submitted v1 configuration |
-| `configs/v2.json` | v2 configuration |
-| `weights/`, `weights/v2/` | trained model weights (feature transforms + TRF weights, joblib); v2 adds `denoise.joblib` |
-| `submission/`, `submission/v2/` | `sub-05_ranked_candidate_list.npy`, `sub-06_ranked_candidate_list.npy`, dev scores |
+| `configs/final.json` | **the submitted configuration** (7 TRFs + CorrCA k=2) |
+| `configs/v1.json`, `configs/v2.json` | earlier versions |
+| `weights/` | **submitted** weights: `member0-6.joblib` (feature transforms + TRF weights) and `denoise.joblib` |
+| `weights/v1/`, `weights/v2/` | weights of the earlier versions |
+| `submission/` | **submitted** `sub-05_ranked_candidate_list.npy`, `sub-06_ranked_candidate_list.npy`, dev scores |
+| `submission/v1/`, `submission/v2/` | predictions of the earlier versions |
 | `results/experiments.csv` | one row per experiment: dev and train-CV top-1/top-5, mean and per subject |
 | `experiments/` | v2 experiment scripts |
 | `figures/` | figures used in the report |
@@ -160,5 +159,6 @@ No pre-trained model is fine-tuned; only the linear TRF is trained.
 * No assignment / matching constraint across test recordings (Hungarian,
   Sinkhorn) is used; we tested it and it did not help (see report).
 * Rows of the submission follow the original order of `tst/sub-XX_tst.npy`.
-* v2's CCA denoiser is fit on out-of-fold predictions and EEG of **training**
-  videos only; on test data it is a fixed linear map applied to each recording.
+* The CorrCA denoiser (final) is fit on the **training** recordings of the six
+  subjects only (v2's CCA denoiser: on out-of-fold predictions and training EEG);
+  on test data it is a fixed linear map applied to each recording.

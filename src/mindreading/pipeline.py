@@ -47,17 +47,31 @@ def train(cfg, out_weights="weights"):
 
 
 def train_denoiser(cfg, Y, m, out_weights):
-    """CCA between the ensemble's out-of-fold predictions (10-fold over TRAINING
-    videos) and the group-average training EEG; keep the first k canonical
-    components and back-project them to the channels (v2, see cca.py)."""
-    from .cca import cca_filters, denoiser
-    from .evaluate import member_predictions
+    """Spatial denoiser: keep the first k components and back-project them to the
+    channels (see cca.py). Fit on TRAINING data only.
+
+    method "corrca": correlated component analysis across the six subjects'
+                     training recordings (components most reproducible between
+                     people watching the same video); same filter for
+                     recordings and predictions.
+    method "cca"   : CCA between the ensemble's out-of-fold predictions (10-fold
+                     over training videos) and the group-average training EEG."""
+    from .cca import cca_filters, corrca, denoiser
 
     dn = cfg["denoise"]
+    out = path(out_weights, "denoise.joblib")
+    if dn.get("method", "cca") == "corrca":
+        subs = [load_subject(s, **cfg["prep"]) for s in ALL_SUBJECTS]
+        V, ev, _, Rw = corrca([x[0] for x in subs], [x[1] for x in subs], dn.get("reg", 0.1))
+        D = denoiser(V, Rw, dn["k"])
+        joblib.dump({"Dx": D, "Dy": D, "eig": ev, "cfg": dn}, out)
+        print(f"denoiser CorrCA k={dn['k']} eigenvalues={np.round(ev[:4], 3).tolist()} -> {out}", flush=True)
+        return
+    from .evaluate import member_predictions
+
     oofs = [member_predictions(mem["features"], mem.get("n_pca", 30), tuple(mem.get("lags", [0, 30, 2])),
                                cfg["prep"], band=mem.get("band"))[1] for mem in cfg["members"]]
     Wx, Wy, rho, Rx, Ry = cca_filters(np.mean(oofs, 0)[m], Y[m], dn.get("reg", 0.1))
-    out = path(out_weights, "denoise.joblib")
     joblib.dump({"Dx": denoiser(Wx, Rx, dn["k"]), "Dy": denoiser(Wy, Ry, dn["k"]), "rho": rho, "cfg": dn}, out)
     print(f"denoiser CCA k={dn['k']} canonical r={np.round(rho[:4], 3).tolist()} -> {out}", flush=True)
 
