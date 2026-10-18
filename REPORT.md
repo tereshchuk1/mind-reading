@@ -47,11 +47,7 @@ subjects, and a result of the same order as on dev should be expected.
    similarity for the same video is twice as high (≈0.17–0.23). The training
    target is therefore an average as well: the mean response of the six
    subjects to each training video (higher SNR, closer to the test data).
-3. **The information is slow and spread over the whole 3 s.** The 0.5–40 Hz
-   band used by the previous iteration *removed* part of the informative
-   signal (in the "ceiling" analysis top-1 dropped from 6.4% to 3.2%). The
-   organisers later confirmed that the data are already filtered 0.1–40 Hz
-   (blinks removed with ICA, downsampled 1000 → 500 Hz): the 0.1–0.5 Hz band is
+3. **The information is slow and spread over the whole 3 s.** The 0.1–0.5 Hz band is
    present in the data and carries a slow stimulus-driven signal, and our
    additional 0.5 Hz high-pass simply cut it out. We therefore **apply no
    high-pass**, only a 20 Hz low-pass and decimation to 50 Hz. The window is the
