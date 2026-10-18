@@ -18,7 +18,7 @@ channels that are most reproducible *across subjects* watching the same training
 video, back-projected to the channels. Similarities are fused after an
 unsupervised column z-score.
 
-The detailed report (in Russian) is in [REPORT.md](REPORT.md).
+The detailed report is in [REPORT.md](REPORT.md).
 
 ## Results
 
