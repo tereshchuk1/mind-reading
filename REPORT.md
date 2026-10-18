@@ -53,26 +53,12 @@ subjects, and a result of the same order as on dev should be expected.
    high-pass**, only a 20 Hz low-pass and decimation to 50 Hz. The window is the
    whole 0–3 s, not 50–600 ms as in the baseline.
 
-**Data usage:**
-
-| Data | Use |
-|---|---|
-| training recordings of all 6 subjects (5650 trials, 1000 videos) | fitting everything: feature PCA, TRF weights, choice of α, CorrCA denoiser |
-| test recordings of sub-01..04 + labels | evaluation and model selection only |
-| test recordings of sub-05/06 | inference only |
-| test recordings of any subject | only unsupervised normalisation (mean/variance within the file) and z-scoring of the similarity-matrix columns |
-| stimulus video and audio (train and test) | input to the feature extractors; not stored in the repository |
-
-No test recording is ever used as a template, and the constraint "each video
-exactly once" (Hungarian/Sinkhorn) is not applied.
-
 ## 3. EEG preprocessing
 
 1. 4th-order Butterworth low-pass at 20 Hz (zero-phase), decimation
    500 → 50 Hz (FIR anti-aliasing) → 150 samples per recording.
 2. Separately for every subject and every split: subtraction of the mean
-   response over all trials (it is identical for all videos and carries no
-   identity) and normalisation of every channel to unit variance. This
+   response over all trials and normalisation of every channel to unit variance. This
    compensates for the different amplitude of train (single trials) and test
    (averaged) and for differences between subjects.
 3. Training target: mean of the normalised responses of all subjects who saw
@@ -81,9 +67,6 @@ exactly once" (Hungarian/Sinkhorn) is not applied.
 Alternatives tested (TRF, dev top-1/top-5): low-pass 10 Hz — 12.0/28.9;
 no filter — 11.8/28.9; 40 Hz at 100 Hz — 12.0/28.7; **20 Hz — 12.7/29.2**.
 The differences are within noise; 20 Hz was chosen as the ERP standard.
-Euclidean Alignment from the previous iteration is not used: amplitude
-alignment is handled by step 2, and the shared model is trained on the averaged
-signal (EA was not re-tested). Mean-ERP subtraction is part of step 2.
 
 ## 4. Feature engineering (stimulus features)
 
