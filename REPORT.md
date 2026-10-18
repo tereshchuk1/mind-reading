@@ -17,7 +17,6 @@ that keeps the 2 spatial components most reproducible *across people*
 |---|---|---|
 | chance | 1.0% | 4.9% |
 | organisers' baseline (AlexNet `features.3` + ridge, sub-01) | 3.9% | 11.8% |
-| best result of the previous iteration (notebook 03) | ≈4.9% | ≈17.6% |
 | ridge "whole clip → whole recording" (no TRF), sound + video | 5.4% | 22.3% |
 | TRF, low-level video + sound + AlexNet | 12.7% | 29.2% |
 | TRF + Whisper (one ensemble member) | 15.0% | 32.1% |
